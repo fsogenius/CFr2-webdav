@@ -51,6 +51,7 @@ https://github.com/aigem/CFr2-webdav
 在您的 GitHub 仓库中，转到 Settings -> Secrets and variables -> Actions，添加以下 secrets：
 
 - `CLOUDFLARE_API_TOKEN`: 步骤1的 Cloudflare API 令牌 (必须)
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare 账户 ID（必须，用于 Wrangler 部署）
 - `USERNAME`: WebDAV 服务器的用户名 （可选，默认为 _user）
 - `PASSWORD`: WebDAV 服务器的密码 （可选，默认为 _pass）
 - `BUCKET_NAME`: 的 R2 存储桶名称 （可选，默认为 bucket 如果与你实际的bucket不符，则GithubAction部署会失败）

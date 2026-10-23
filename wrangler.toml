@@ -1,6 +1,7 @@
 name = "cfr2-webdav"
 main = "src/index.ts"
 compatibility_date = "2023-01-01"
+account_id = "YOUR_ACCOUNT_ID"
 
 [[r2_buckets]]
 binding = "BUCKET"
