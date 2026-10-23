@@ -12,8 +12,9 @@ export interface CacheableResponse {
 }
 
 export interface WebDAVProps {
+  href: string;
   creationdate: string;
-  displayname: string | undefined;
+  displayname: string;
   getcontentlanguage: string | undefined;
   getcontentlength: string;
   getcontenttype: string | undefined;

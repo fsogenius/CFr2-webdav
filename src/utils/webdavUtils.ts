@@ -7,68 +7,108 @@ export function make_resource_path(request: Request): string {
   return decodeURIComponent(url.pathname.slice(1));
 }
 
-export async function* listAll(bucket: R2Bucket, prefix: string) {
-  const options = { prefix, delimiter: "/" };
-  let result = await bucket.list(options);
-
-  while (result.objects.length > 0) {
-    for (const object of result.objects) {
-      yield object;
-    }
-
-    if (result.truncated && result.cursor) {
-      result = await bucket.list({ ...options, cursor: result.cursor });
-    } else {
-      break;
-    }
-  }
+export function encodePath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
 }
 
-export function fromR2Object(object: R2Object | null): WebDAVProps {
-  if (!object) {
-    return {
-      creationdate: new Date().toUTCString(),
-      displayname: undefined,
-      getcontentlanguage: undefined,
-      getcontentlength: "0",
-      getcontenttype: undefined,
-      getetag: undefined,
-      getlastmodified: new Date().toUTCString(),
-      resourcetype: "collection"
-    };
-  }
+export function pathToHref(path: string): string {
+  return `/${encodePath(path)}`;
+}
+
+function getDisplayName(path: string): string {
+  const trimmed = path.endsWith('/') ? path.slice(0, -1) : path;
+  return trimmed.split('/').pop() || '';
+}
+
+export function collectionProps(path: string): WebDAVProps {
+  const now = new Date().toUTCString();
   return {
+    href: pathToHref(path),
+    creationdate: now,
+    displayname: getDisplayName(path),
+    getcontentlanguage: undefined,
+    getcontentlength: '0',
+    getcontenttype: undefined,
+    getetag: undefined,
+    getlastmodified: now,
+    resourcetype: 'collection'
+  };
+}
+
+export function objectProps(object: R2Object): WebDAVProps {
+  return {
+    href: pathToHref(object.key),
     creationdate: object.uploaded.toUTCString(),
-    displayname: object.key.split('/').pop(),
+    displayname: object.key.split('/').pop() || object.key,
     getcontentlanguage: object.httpMetadata?.contentLanguage,
     getcontentlength: object.size.toString(),
     getcontenttype: object.httpMetadata?.contentType,
     getetag: object.etag,
     getlastmodified: object.uploaded.toUTCString(),
-    resourcetype: object.customMetadata?.resourcetype || ""
+    resourcetype: object.customMetadata?.resourcetype === 'collection' ? 'collection' : ''
   };
 }
 
-export function generatePropfindResponse(bucketName: string, basePath: string, props: WebDAVProps[]): string {
-  const responses = props.map(prop => generatePropResponse(bucketName, basePath, prop)).join("\n");
+export type DavEntry =
+  | { type: 'object'; object: R2Object }
+  | { type: 'prefix'; prefix: string };
+
+export async function* listEntries(bucket: R2Bucket, prefix: string): AsyncGenerator<DavEntry> {
+  const options = { prefix, delimiter: '/' };
+  let cursor: string | undefined;
+
+  do {
+    const result = await bucket.list({ ...options, cursor });
+
+    for (const object of result.objects) {
+      if (object.key === prefix) continue;
+      yield { type: 'object', object };
+    }
+
+    for (const folder of result.delimitedPrefixes ?? []) {
+      yield { type: 'prefix', prefix: folder };
+    }
+
+    cursor = result.truncated ? result.cursor : undefined;
+  } while (cursor);
+}
+
+export function entryProps(entry: DavEntry): WebDAVProps {
+  return entry.type === 'object' ? objectProps(entry.object) : collectionProps(entry.prefix);
+}
+
+export function generatePropfindResponse(props: WebDAVProps[]): string {
+  const responses = props.map((prop) => generatePropResponse(prop)).join('\n');
   return `<?xml version="1.0" encoding="utf-8" ?>
   <D:multistatus xmlns:D="DAV:">
 ${responses}
   </D:multistatus>`;
 }
 
-function generatePropResponse(bucketName: string, basePath: string, prop: WebDAVProps): string {
-  const resourcePath = `/${bucketName}/${basePath}${prop.displayname ? '/' + prop.displayname : ''}`;
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function generatePropResponse(prop: WebDAVProps): string {
   return `  <D:response>
-    <D:href>${resourcePath}</D:href>
+    <D:href>${prop.href}</D:href>
     <D:propstat>
       <D:prop>
+        <D:displayname>${escapeXml(prop.displayname)}</D:displayname>
         <D:creationdate>${prop.creationdate}</D:creationdate>
         <D:getcontentlength>${prop.getcontentlength}</D:getcontentlength>
-        <D:getcontenttype>${prop.getcontenttype || ''}</D:getcontenttype>
-        <D:getetag>${prop.getetag || ''}</D:getetag>
+        <D:getcontenttype>${escapeXml(prop.getcontenttype || '')}</D:getcontenttype>
+        <D:getetag>${escapeXml(prop.getetag || '')}</D:getetag>
         <D:getlastmodified>${prop.getlastmodified}</D:getlastmodified>
-        <D:resourcetype>${prop.resourcetype ? '<D:collection/>' : ''}</D:resourcetype>
+        <D:resourcetype>${prop.resourcetype === 'collection' ? '<D:collection/>' : ''}</D:resourcetype>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>

@@ -1,5 +1,12 @@
 // 文件名：src/handlers/webdavHandler.ts
-import { listAll, fromR2Object, make_resource_path, generatePropfindResponse } from '../utils/webdavUtils';
+import {
+  listEntries,
+  entryProps,
+  collectionProps,
+  make_resource_path,
+  pathToHref,
+  generatePropfindResponse
+} from '../utils/webdavUtils';
 import { logger } from '../utils/logger';
 import { generateHTML, generateErrorHTML } from '../utils/templates';
 import { WebDAVProps, Env } from '../types';
@@ -104,11 +111,11 @@ async function handleDirectory(bucket: R2Bucket, resource_path: string, bucketNa
   }
 
   try {
-    for await (const object of listAll(bucket, resource_path)) {
-      if (object.key === resource_path) continue;
-      const isDirectory = object.customMetadata?.resourcetype === "collection";
-      const displayName = object.key.split('/').pop() || object.key;
-      const href = `/${object.key}${isDirectory ? "/" : ""}`;
+    for await (const entry of listEntries(bucket, resource_path)) {
+      const isDirectory = entry.type === "prefix" || entry.object.customMetadata?.resourcetype === "collection";
+      const key = entry.type === "prefix" ? entry.prefix : entry.object.key;
+      const displayName = key.replace(/\/$/, '').split('/').pop() || key;
+      const href = pathToHref(key);
       items.push({ name: `${isDirectory ? '📁 ' : '📄 '}${displayName}`, href });
     }
   } catch (error) { 
@@ -211,26 +218,31 @@ async function handleMkcol(request: Request, bucket: R2Bucket): Promise<Response
   }
 }
 
-async function handlePropfind(request: Request, bucket: R2Bucket, bucketName: string): Promise<Response> {
+async function handlePropfind(request: Request, bucket: R2Bucket, _bucketName: string): Promise<Response> {
   const resource_path = make_resource_path(request);
-  const depth = request.headers.get("Depth") || "infinity";
+  const depth = request.headers.get("Depth") || "1";
+  const isCollection = resource_path === "" || resource_path.endsWith("/");
 
   try {
     const props: WebDAVProps[] = [];
-    if (depth !== "0") {
-      for await (const object of listAll(bucket, resource_path)) {
-        props.push(fromR2Object(object));
+
+    if (isCollection) {
+      props.push(collectionProps(resource_path));
+
+      if (depth !== "0") {
+        for await (const entry of listEntries(bucket, resource_path)) {
+          props.push(entryProps(entry));
+        }
       }
     } else {
       const object = await bucket.head(resource_path);
-      if (object) {
-        props.push(fromR2Object(object));
-      } else {
+      if (!object) {
         return new Response("Not Found", { status: 404 });
       }
+      props.push(entryProps({ type: "object", object }));
     }
 
-    const xml = generatePropfindResponse(bucketName, resource_path, props);
+    const xml = generatePropfindResponse(props);
     logger.info("Generated XML for PROPFIND:", xml);
     return new Response(xml, {
       status: 207,
