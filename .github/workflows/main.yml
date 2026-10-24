@@ -1,11 +1,8 @@
-name: Deploy to Cloudflare Workers
-
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,24 +15,12 @@ jobs:
           USERNAME: ${{ secrets.USERNAME || '_user' }}
           PASSWORD: ${{ secrets.PASSWORD || '_pass' }}
           BUCKET_NAME: ${{ secrets.BUCKET_NAME || 'bucket-webdav' }}
-          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-
-          with open('wrangler.toml.template', encoding='utf-8') as f:
-              config = f.read()
-
-          for key in ('USERNAME', 'PASSWORD', 'BUCKET_NAME', 'ACCOUNT_ID'):
-              value = json.dumps(os.environ[key], ensure_ascii=False)
-              config = config.replace(f'"${key}"', value)
-
-          with open('wrangler.toml', 'w', encoding='utf-8') as f:
-              f.write(config)
-
-          print(f"Generated wrangler.toml for bucket: {os.environ['BUCKET_NAME']}")
-          PY
+          sed -e "s/\$USERNAME/$USERNAME/g" \
+              -e "s/\$PASSWORD/$PASSWORD/g" \
+              -e "s/\$BUCKET_NAME/$BUCKET_NAME/g" \
+              wrangler.toml.template > wrangler.toml
+          cat wrangler.toml
 
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3
