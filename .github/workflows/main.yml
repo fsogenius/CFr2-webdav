@@ -1,3 +1,5 @@
+name: Deploy to Cloudflare Workers
+
 on:
   push:
     branches:
@@ -14,7 +16,7 @@ jobs:
         env:
           USERNAME: ${{ secrets.USERNAME || '_user' }}
           PASSWORD: ${{ secrets.PASSWORD || '_pass' }}
-          BUCKET_NAME: ${{ secrets.BUCKET_NAME || 'bucket-webdav' }}
+          BUCKET_NAME: ${{ secrets.BUCKET_NAME || 'bucket' }}
         run: |
           sed -e "s/\$USERNAME/$USERNAME/g" \
               -e "s/\$PASSWORD/$PASSWORD/g" \
